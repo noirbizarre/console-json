@@ -1,4 +1,34 @@
+use std::ffi::OsStr;
+
 use console::Style;
+
+pub(crate) fn stdout_auto_colors(is_terminal: bool) -> bool {
+    let no_color = std::env::var_os("NO_COLOR");
+    let supported = auto_color_support(
+        console::colors_enabled(),
+        no_color.as_deref(),
+        console::is_dumb(),
+        std::env::var_os("CLICOLOR").as_deref(),
+    );
+    ColorMode::Auto.resolve(
+        is_terminal,
+        supported,
+        no_color.is_some_and(|value| !value.is_empty()),
+    )
+}
+
+fn auto_color_support(
+    console_enabled: bool,
+    no_color: Option<&OsStr>,
+    is_dumb: bool,
+    clicolor: Option<&OsStr>,
+) -> bool {
+    // Console rejects even an empty NO_COLOR, so its false result alone cannot
+    // decide this case. Recheck its TERM/CLICOLOR policy without mutating the
+    // environment or process-global console settings.
+    console_enabled
+        || (no_color.is_some_and(OsStr::is_empty) && !is_dumb && clicolor != Some(OsStr::new("0")))
+}
 
 /// Whether JSON presentation styles should be emitted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -80,7 +110,85 @@ impl JsonOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::ColorMode;
+    use std::ffi::OsStr;
+    use std::process::Command;
+
+    use super::{ColorMode, auto_color_support, stdout_auto_colors};
+
+    #[test]
+    fn only_nonempty_no_color_disables_automatic_colors_in_a_fresh_process() {
+        if let Ok(expected) = std::env::var("CONSOLE_JSON_TEST_AUTO_COLOR") {
+            // Supply terminal status directly so this environment regression
+            // runs on CI without a PTY; console support is forced in the child.
+            assert_eq!(stdout_auto_colors(true), expected == "true");
+            assert!(!stdout_auto_colors(false));
+            return;
+        }
+
+        // Isolate environment variables and console's cached state without
+        // unsafe process-environment mutation in parallel Rust tests.
+        for no_color in [None, Some(""), Some("0"), Some("1")] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "options::tests::only_nonempty_no_color_disables_automatic_colors_in_a_fresh_process",
+                    "--nocapture",
+                ])
+                .env("CONSOLE_JSON_TEST_AUTO_COLOR", if no_color.is_none_or(str::is_empty) {
+                    "true"
+                } else {
+                    "false"
+                })
+                .env("CLICOLOR_FORCE", "1")
+                .env_remove("NO_COLOR");
+            if let Some(value) = no_color {
+                command.env("NO_COLOR", value);
+            }
+            let child = command.output().unwrap();
+            assert!(
+                child.status.success(),
+                "{}",
+                String::from_utf8_lossy(&child.stdout)
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_no_color_does_not_disable_an_otherwise_supported_terminal() {
+        for no_color in [None, Some(OsStr::new("")), Some(OsStr::new("1"))] {
+            // Model console's presence-based check, including its empty-value
+            // false negative, to ensure Auto compensates rather than trusting it.
+            let supported = auto_color_support(no_color.is_none(), no_color, false, None);
+            let disabled = no_color.is_some_and(|value| !value.is_empty());
+            assert_eq!(
+                ColorMode::Auto.resolve(true, supported, disabled),
+                !disabled
+            );
+            assert!(!ColorMode::Auto.resolve(false, supported, disabled));
+        }
+    }
+
+    #[test]
+    fn an_empty_no_color_still_respects_disabled_and_dumb_terminals() {
+        let empty = Some(OsStr::new(""));
+        assert!(!auto_color_support(false, empty, true, None));
+        assert!(!auto_color_support(
+            false,
+            empty,
+            false,
+            Some(OsStr::new("0"))
+        ));
+        assert!(auto_color_support(
+            false,
+            empty,
+            false,
+            Some(OsStr::new("1"))
+        ));
+        // A console force override may enable support, but the destination and
+        // nonempty NO_COLOR gates are still applied by ColorMode::resolve.
+        assert!(auto_color_support(true, empty, true, Some(OsStr::new("0"))));
+    }
 
     #[test]
     fn automatic_colors_require_a_supported_terminal_without_no_color() {

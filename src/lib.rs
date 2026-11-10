@@ -71,7 +71,7 @@ pub fn write_json_with_options<W: Write + ?Sized, T: Serialize + ?Sized>(
 
 /// Write pretty JSON to locked stdout with automatic terminal detection.
 ///
-/// Colors require a terminal, console color support, and no `NO_COLOR` variable.
+/// Colors require a supported terminal and no nonempty `NO_COLOR` variable.
 /// Redirected or piped stdout is plain JSON.
 ///
 /// # Errors
@@ -83,8 +83,8 @@ pub fn write_json_stdout<T: Serialize + ?Sized>(value: &T) -> Result<()> {
 
 /// Write pretty JSON to locked stdout with explicit options.
 ///
-/// Automatic detection respects console's color settings and the presence of
-/// `NO_COLOR` (even empty), and always disables colors for pipes. [`ColorMode::Always`]
+/// Automatic detection respects terminal capabilities, `CLICOLOR`, and nonempty
+/// `NO_COLOR`, and always disables colors for pipes. [`ColorMode::Always`]
 /// overrides detection and `NO_COLOR`; [`ColorMode::Never`] suppresses all styles.
 /// Console may cache capability and environment detection for the process.
 ///
@@ -99,11 +99,7 @@ pub fn write_json_stdout_with_options<T: Serialize + ?Sized>(
     let mut writer = stdout.lock();
     // Explicit modes must not depend on environment detection or its cached state.
     let enabled = match options.color {
-        ColorMode::Auto => options.color.resolve(
-            writer.is_terminal(),
-            console::colors_enabled(),
-            std::env::var_os("NO_COLOR").is_some(),
-        ),
+        ColorMode::Auto => options::stdout_auto_colors(writer.is_terminal()),
         ColorMode::Always => true,
         ColorMode::Never => false,
     };

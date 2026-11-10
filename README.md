@@ -69,9 +69,10 @@ A generic `Write` cannot reliably identify its destination, including when a
 stdout handle is passed directly. Use `write_json_stdout` or
 `write_json_stdout_with_options` for automatic stdout detection.
 
-Automatic stdout colors respect `console`'s capability/settings detection
-(including `CLICOLOR`) and the presence of `NO_COLOR` (even empty), matching
-console's behavior. Even `CLICOLOR_FORCE` cannot
+Automatic stdout colors use `console`'s detection and respect `CLICOLOR` and
+nonempty `NO_COLOR`. An unset or empty `NO_COLOR` does not disable colors on an
+otherwise supported terminal. For an empty value, terminal and `CLICOLOR` checks
+compensate for console's presence-based detection. Even `CLICOLOR_FORCE` cannot
 color a pipe or override `NO_COLOR` in `Auto`. `Always` overrides detection and
 `NO_COLOR`; `Never` suppresses every style. The library does not change global
 console settings. Console may cache capability/environment detection, so set

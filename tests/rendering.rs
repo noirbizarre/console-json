@@ -309,8 +309,9 @@ fn stdout_can_be_rendered_in_an_isolated_process() {
 #[test]
 fn redirected_stdout_stays_plain_unless_colors_are_explicitly_requested() {
     for mode in ["auto", "always", "never"] {
-        for no_color in ["", "1"] {
-            let child = Command::new(std::env::current_exe().unwrap())
+        for no_color in [None, Some(""), Some("1")] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
                 .args([
                     "--exact",
                     "stdout_can_be_rendered_in_an_isolated_process",
@@ -319,9 +320,11 @@ fn redirected_stdout_stays_plain_unless_colors_are_explicitly_requested() {
                 .env("CONSOLE_JSON_TEST_PROBE", mode)
                 .env("TERM", "xterm-256color")
                 .env("CLICOLOR_FORCE", "1")
-                .env("NO_COLOR", no_color)
-                .output()
-                .unwrap();
+                .env_remove("NO_COLOR");
+            if let Some(value) = no_color {
+                command.env("NO_COLOR", value);
+            }
+            let child = command.output().unwrap();
             assert!(
                 child.status.success(),
                 "{}",
