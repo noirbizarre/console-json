@@ -9,6 +9,7 @@ pub(crate) fn stdout_auto_colors(is_terminal: bool) -> bool {
         no_color.as_deref(),
         console::is_dumb(),
         std::env::var_os("CLICOLOR").as_deref(),
+        || is_terminal && empty_no_color_terminal_support(),
     );
     ColorMode::Auto.resolve(
         is_terminal,
@@ -22,12 +23,45 @@ fn auto_color_support(
     no_color: Option<&OsStr>,
     is_dumb: bool,
     clicolor: Option<&OsStr>,
+    platform_supported: impl FnOnce() -> bool,
 ) -> bool {
     // Console rejects even an empty NO_COLOR, so its false result alone cannot
-    // decide this case. Recheck its TERM/CLICOLOR policy without mutating the
-    // environment or process-global console settings.
+    // decide this case. Recheck policy and capabilities without mutating the
+    // environment or process-global console settings. Keep the capability
+    // probe lazy: disabled output must not initialize native console modes.
     console_enabled
-        || (no_color.is_some_and(OsStr::is_empty) && !is_dumb && clicolor != Some(OsStr::new("0")))
+        || (no_color.is_some_and(OsStr::is_empty)
+            && !is_dumb
+            && clicolor != Some(OsStr::new("0"))
+            && platform_supported())
+}
+
+#[cfg(not(windows))]
+fn empty_no_color_terminal_support() -> bool {
+    // On these platforms console's remaining policy is TERM/CLICOLOR alone.
+    true
+}
+
+#[cfg(windows)]
+fn empty_no_color_terminal_support() -> bool {
+    use windows_sys::Win32::System::Console::{
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE,
+        SetConsoleMode,
+    };
+
+    if console::Term::stdout().features().is_msys_tty() {
+        // MSYS interprets ANSI itself and has no native mode to initialize.
+        return true;
+    }
+    let mut mode = 0;
+    // SAFETY: stdout's handle is borrowed, and mode is a valid writable DWORD.
+    // Both APIs report invalid/non-console handles as failure. Preserve every
+    // unrelated mode bit, leaving VT enabled just as console's normal probe does.
+    unsafe {
+        let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        GetConsoleMode(handle, &mut mode) != 0
+            && SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
+    }
 }
 
 /// Whether JSON presentation styles should be emitted.
@@ -159,7 +193,7 @@ mod tests {
         for no_color in [None, Some(OsStr::new("")), Some(OsStr::new("1"))] {
             // Model console's presence-based check, including its empty-value
             // false negative, to ensure Auto compensates rather than trusting it.
-            let supported = auto_color_support(no_color.is_none(), no_color, false, None);
+            let supported = auto_color_support(no_color.is_none(), no_color, false, None, || true);
             let disabled = no_color.is_some_and(|value| !value.is_empty());
             assert_eq!(
                 ColorMode::Auto.resolve(true, supported, disabled),
@@ -172,22 +206,33 @@ mod tests {
     #[test]
     fn an_empty_no_color_still_respects_disabled_and_dumb_terminals() {
         let empty = Some(OsStr::new(""));
-        assert!(!auto_color_support(false, empty, true, None));
+        assert!(!auto_color_support(false, empty, true, None, || panic!(
+            "disabled probe"
+        )));
         assert!(!auto_color_support(
             false,
             empty,
             false,
-            Some(OsStr::new("0"))
+            Some(OsStr::new("0")),
+            || panic!("disabled probe")
         ));
         assert!(auto_color_support(
             false,
             empty,
             false,
-            Some(OsStr::new("1"))
+            Some(OsStr::new("1")),
+            || true
         ));
         // A console force override may enable support, but the destination and
         // nonempty NO_COLOR gates are still applied by ColorMode::resolve.
-        assert!(auto_color_support(true, empty, true, Some(OsStr::new("0"))));
+        assert!(auto_color_support(
+            true,
+            empty,
+            true,
+            Some(OsStr::new("0")),
+            || panic!("unnecessary probe")
+        ));
+        assert!(!auto_color_support(false, empty, false, None, || false));
     }
 
     #[test]
@@ -203,6 +248,117 @@ mod tests {
                     assert!(!ColorMode::Never.resolve(terminal, supported, no_color));
                 }
             }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_no_color_initializes_a_private_windows_console_before_styling() {
+        use std::fs::OpenOptions;
+        use std::os::windows::{io::AsRawHandle, process::CommandExt};
+
+        use windows_sys::Win32::{
+            Foundation::HANDLE,
+            System::{
+                Console::{
+                    ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
+                    STD_OUTPUT_HANDLE, SetConsoleMode, SetStdHandle,
+                },
+                Threading::CREATE_NEW_CONSOLE,
+            },
+        };
+
+        if let Ok(expected) = std::env::var("CONSOLE_JSON_TEST_NATIVE_COLOR") {
+            // A captured child stdout is still a pipe even with CREATE_NEW_CONSOLE.
+            // Bind only this isolated child's stdout to its private console.
+            let output = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("CONOUT$")
+                .expect("the Windows regression requires a private native console");
+            let handle = output.as_raw_handle();
+            let mut mode = 0;
+            // SAFETY: the file owns a live console handle and mode is writable.
+            assert_ne!(unsafe { GetConsoleMode(handle, &mut mode) }, 0);
+
+            struct RestoreConsole {
+                handle: HANDLE,
+                original_stdout: HANDLE,
+                mode: u32,
+            }
+            impl Drop for RestoreConsole {
+                fn drop(&mut self) {
+                    // SAFETY: the file outlives this guard; the original borrowed
+                    // stdout remains owned by the child's standard-handle setup.
+                    unsafe {
+                        SetConsoleMode(self.handle, self.mode);
+                        SetStdHandle(STD_OUTPUT_HANDLE, self.original_stdout);
+                    }
+                }
+            }
+
+            let _restore = RestoreConsole {
+                handle,
+                // SAFETY: reading the process's borrowed standard handle.
+                original_stdout: unsafe { GetStdHandle(STD_OUTPUT_HANDLE) },
+                mode,
+            };
+            // SAFETY: the live private console handle is valid for mode changes.
+            unsafe {
+                assert_ne!(SetStdHandle(STD_OUTPUT_HANDLE, handle), 0);
+                assert_ne!(
+                    SetConsoleMode(handle, mode & !ENABLE_VIRTUAL_TERMINAL_PROCESSING),
+                    0
+                );
+            }
+            let expected = expected == "true";
+            assert_eq!(stdout_auto_colors(true), expected);
+            let mut initialized = 0;
+            // SAFETY: the console file remains open, and initialized is writable.
+            assert_ne!(unsafe { GetConsoleMode(handle, &mut initialized) }, 0);
+            assert_eq!(
+                initialized & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0,
+                expected
+            );
+            return;
+        }
+
+        for (no_color, clicolor, term, expected) in [
+            (None, None, None, true),
+            (Some(""), None, None, true),
+            (Some("1"), None, None, false),
+            (Some(""), Some("0"), None, false),
+            (Some(""), None, Some("dumb"), false),
+        ] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "options::tests::empty_no_color_initializes_a_private_windows_console_before_styling",
+                    "--nocapture",
+                ])
+                .creation_flags(CREATE_NEW_CONSOLE)
+                .env("CONSOLE_JSON_TEST_NATIVE_COLOR", expected.to_string())
+                .env_remove("NO_COLOR")
+                .env_remove("CLICOLOR")
+                .env_remove("CLICOLOR_FORCE")
+                .env_remove("TERM");
+            for (name, value) in [
+                ("NO_COLOR", no_color),
+                ("CLICOLOR", clicolor),
+                ("TERM", term),
+            ] {
+                if let Some(value) = value {
+                    command.env(name, value);
+                }
+            }
+            let child = command.output().unwrap();
+            assert!(
+                child.status.success(),
+                "native console case {no_color:?}/{clicolor:?}/{term:?}: {}{}",
+                String::from_utf8_lossy(&child.stdout),
+                String::from_utf8_lossy(&child.stderr)
+            );
         }
     }
 }

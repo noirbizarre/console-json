@@ -62,6 +62,14 @@ serde = { version = "1", features = ["derive"] }
 # Leave map-ordering features to consumers instead of changing their serialization.
 serde_json = "1"
 
+[target.'cfg(windows)'.dependencies]
+# Empty NO_COLOR must not bypass console's native ANSI-mode initialization.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Native-console regressions need a private console rather than CI's pipe.
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+
 [dev-dependencies]
 # ANSI parsing is only needed to verify the colored output contract.
 console = { version = "0.16", default-features = false, features = ["std", "ansi-parsing"] }
