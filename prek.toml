@@ -15,9 +15,8 @@ hooks = [
   { id = "check-toml" },
   { id = "check-yaml" },
   { id = "check-json" },
-  # Rust files are excluded because `cargo fmt` below already owns their final
-  # newline, and two hooks rewriting the same bytes is how a pre-commit run
-  # ends up needing a second pre-commit run.
+  # Rust formatting and final-newline policy are validated by rustfmt below.
+  # Keep corrections with that formatter: run `mise format` when its check fails.
   { id = "end-of-file-fixer", exclude_types = ["rust"] },
   { id = "mixed-line-ending" },
   { id = "trailing-whitespace" },
