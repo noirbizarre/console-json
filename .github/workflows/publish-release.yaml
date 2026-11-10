@@ -1,0 +1,81 @@
+
+name: 📦 Publish Release
+run-name: 📦 Publish Release ${{ inputs.ref || github.ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Run tag or commit SHA; leave blank for a manual main rebuild
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_NET_RETRY: "10"
+  RUSTUP_MAX_RETRIES: "10"
+  RUSTFLAGS: -D warnings
+  # gh-ship runs on the version tag; main CI publishes to the rolling channel.
+  TAG: ${{ startsWith(inputs.ref || github.ref, 'refs/tags/') && github.ref_name || vars.PRERELEASE_NAME || 'development' }}
+
+jobs:
+
+  publish:
+    name: 🚀 Publish
+    runs-on: ubuntu-latest
+    # Only uploads serialize; builds remain parallel and no partial upload is cancelled.
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    environment:
+      name: release
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.TAG }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
+      - uses: jdx/mr-boxington-action@v1
+        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
+        with:
+          version: 1.28.0
+          backend: local
+      # Last: an irreversible crates.io publication must follow successful binary uploads.
+      - name: Check whether this version is already published
+        id: existing
+        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
+        run: |
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 \
+            -H 'User-Agent: console-json-release' "https://crates.io/api/v1/crates/console-json/${TAG}")
+          case "$status" in
+            200) echo 'published=true' >> "$GITHUB_OUTPUT" ;;
+            404) echo 'published=false' >> "$GITHUB_OUTPUT" ;;
+            *) echo '::error::Could not check the existing crate version; retry publication.'; exit 1 ;;
+          esac
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+        if: startsWith(inputs.ref || github.ref, 'refs/tags/') && steps.existing.outputs.published == 'false'
+      - name: Publish to crates.io
+        if: startsWith(inputs.ref || github.ref, 'refs/tags/') && steps.existing.outputs.published == 'false'
+        run: mbx publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
