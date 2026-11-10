@@ -16,8 +16,8 @@ checks is a comment, and it will be violated.
 1. **Styling preserves JSON text** — enforced by
    `nested_json_preserves_escaping_unicode_structure_and_values` in
    `tests/rendering.rs`.
-2. **Pipes default to plain JSON** — enforced by
-   `redirected_stdout_stays_plain_unless_colors_are_explicitly_requested` in
+2. **Stdout pipes always receive compact, uncolored JSON** — enforced by
+   `redirected_stdout_is_always_compact_and_uncolored` in
    `tests/rendering.rs`.
 3. **Write errors retain their I/O kind** — enforced by
    `writer_errors_are_preserved_even_inside_colored_tokens` in

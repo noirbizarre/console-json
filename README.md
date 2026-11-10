@@ -18,7 +18,7 @@
 
 ---
 
-Readable JSON for humans, plain JSON for scripts. `console-json` streams any
+Readable JSON for humans, compact JSON for scripts. `console-json` streams any
 Serde-serializable value to a writer, using `serde_json` for serialization and
 `console` for configurable terminal styles. It preserves JSON data and escaping
 without buffering or reparsing the document.
@@ -37,8 +37,13 @@ console_json::write_json_stdout(&value)?;
 # Ok::<(), console_json::Error>(())
 ```
 
-The stdout helper locks stdout and automatically enables colors on supported
-terminals. Redirected and piped stdout stays plain JSON.
+The stdout helper locks stdout and selects presentation for its destination:
+
+| Destination | Layout | Colors (default) |
+| --- | --- | --- |
+| Terminal | Pretty, two-space indentation | When supported |
+| Terminal with nonempty `NO_COLOR` | Pretty, two-space indentation | Disabled |
+| Pipe or redirected stdout | Compact | Always disabled |
 
 ### Arbitrary writers and explicit colors
 
@@ -62,9 +67,10 @@ write_json_with_options(
 | Mode | Stdout helpers | Generic writers |
 | --- | --- | --- |
 | `Auto` (default) | Color-capable terminal only | Plain JSON |
-| `Always` | Force styles | Force styles |
+| `Always` | Force styles on terminals only | Force styles |
 | `Never` | Plain JSON | Plain JSON |
 
+A generic writer always uses pretty formatting, independent of color mode.
 A generic `Write` cannot reliably identify its destination, including when a
 stdout handle is passed directly. Use `write_json_stdout` or
 `write_json_stdout_with_options` for automatic stdout detection.
@@ -73,8 +79,10 @@ Automatic stdout colors use `console`'s detection and respect `CLICOLOR` and
 nonempty `NO_COLOR`. An unset or empty `NO_COLOR` does not disable colors on an
 otherwise supported terminal. For an empty value, terminal and `CLICOLOR` checks
 compensate for console's presence-based detection. Even `CLICOLOR_FORCE` cannot
-color a pipe or override `NO_COLOR` in `Auto`. `Always` overrides detection and
-`NO_COLOR`; `Never` suppresses every style. The library does not change global
+color a pipe or override `NO_COLOR` in `Auto`. On terminals, `Always` overrides
+capability detection and `NO_COLOR`; `Never` suppresses every style. Stdout helpers
+keep pipes and redirected output compact and uncolored even in `Always` mode.
+Color settings never change the selected layout. The library does not change global
 console settings. Console may cache capability/environment detection, so set
 environment variables before the first use.
 
@@ -113,7 +121,8 @@ through unchanged rather than parsed or highlighted.
 
 ### Output and errors
 
-Output follows `serde_json`'s two-space pretty formatting. No trailing newline
+Terminal stdout and generic writers follow `serde_json`'s two-space pretty
+formatting; redirected stdout follows its compact formatting. No trailing newline
 is added and the writer is not flushed; the caller controls both. Existing
 `serde_json::Value` instances use the same generic functions as other
 `serde::Serialize` values.

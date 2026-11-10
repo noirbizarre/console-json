@@ -290,25 +290,40 @@ fn stdout_can_be_rendered_in_an_isolated_process() {
     let Ok(mode) = std::env::var("CONSOLE_JSON_TEST_PROBE") else {
         return;
     };
+    let default_options = mode == "default";
     let mode = match mode.as_str() {
         "always" => ColorMode::Always,
         "never" => ColorMode::Never,
         _ => ColorMode::Auto,
     };
     println!("BEGIN_JSON");
-    console_json::write_json_stdout_with_options(
-        &json!({"ready": true}),
-        JsonOptions::default().color(mode),
-    )
-    .unwrap();
+    let value = json!({"ready": true});
+    if default_options {
+        console_json::write_json_stdout(&value).unwrap();
+    } else {
+        console_json::write_json_stdout_with_options(
+            &value,
+            JsonOptions::default().color(mode).theme(Theme {
+                // A theme's forced styles must not leak into machine output.
+                punctuation: Style::new().red().force_styling(true),
+                ..Theme::default()
+            }),
+        )
+        .unwrap();
+    }
     println!("\nEND_JSON");
+    let Error::Render(source) = console_json::write_json_stdout(&Fails).unwrap_err() else {
+        panic!("expected render error")
+    };
+    assert!(source.is_data());
+    assert_eq!(source.to_string(), "deliberate serialization failure");
     // Even in a color-capable child, a generic writer must remain plain.
     assert_eq!(output(&true, ColorMode::Auto), "true");
 }
 
 #[test]
-fn redirected_stdout_stays_plain_unless_colors_are_explicitly_requested() {
-    for mode in ["auto", "always", "never"] {
+fn redirected_stdout_is_always_compact_and_uncolored() {
+    for mode in ["default", "auto", "always", "never"] {
         for no_color in [None, Some(""), Some("1")] {
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
@@ -338,11 +353,7 @@ fn redirected_stdout_stays_plain_unless_colors_are_explicitly_requested() {
                 .split_once("\nEND_JSON")
                 .unwrap()
                 .0;
-            assert_eq!(rendered.contains('\x1b'), mode == "always");
-            assert_eq!(
-                console::strip_ansi_codes(rendered),
-                "{\n  \"ready\": true\n}"
-            );
+            assert_eq!(rendered, "{\"ready\":true}");
         }
     }
 }

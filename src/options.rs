@@ -70,7 +70,8 @@ pub enum ColorMode {
     /// Detect stdout capabilities in stdout helpers; use plain JSON for generic writers.
     #[default]
     Auto,
-    /// Force styles, including for pipes and when `NO_COLOR` is set.
+    /// Force styles even when `NO_COLOR` is set. Stdout helpers still keep pipes
+    /// and redirected output uncolored; generic writers always emit styles.
     Always,
     /// Disable every style, including styles individually forced by a custom theme.
     Never,
