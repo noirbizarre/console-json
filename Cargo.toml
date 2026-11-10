@@ -66,5 +66,5 @@ serde_json = { version = "1", features = ["preserve_order"] }
 [dev-dependencies]
 tempfile = "3"
 insta = { version = "1", features = ["filters"] }
-rstest = "0.26"
+rstest = "0.28"
 pretty_assertions = "1"
