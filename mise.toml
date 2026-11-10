@@ -151,7 +151,7 @@ description = "Run every check that does not modify the working tree"
 depends = ["format:check", "lint", "lint:actions", "lint:md", "spell", "test"]
 
 [tasks.ci]
-description = "Everything CI runs, locally"
+description = "Run the comprehensive local check suite"
 depends = ["check"]
 
 # --- Release ----------------------------------------------------------------
