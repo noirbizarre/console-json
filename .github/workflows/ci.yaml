@@ -198,4 +198,4 @@ jobs:
       # toolchain than the crate itself, and the MSRV is a promise about
       # consuming the library, not about developing it.
       - name: Check
-        run: mbx check --all-targets
+        run: mbx check --lib
