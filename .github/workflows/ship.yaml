@@ -2,7 +2,7 @@
 name: 🚢 Ship
 
 # gh ship run routes each event to the right half of the release lifecycle:
-# pushes prepare the Release PR, and merging it tags, drafts, builds assets,
+# pushes prepare the Release PR, and merging it tags, drafts, publishes the crate,
 # then makes the release public. Unrelated closed PRs skip successfully.
 # Nothing to release costs one prepare-release run reporting changed: false.
 

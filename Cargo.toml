@@ -31,8 +31,8 @@ debug = "line-tables-only"
 debug = "line-tables-only"
 
 [profile.release]
-# Release binaries are cross-compiled once per tag and downloaded many times, so
-# the build cost is paid once and the size saving is paid forward.
+# Favor optimization and smaller artifacts for local release-profile builds.
+# Consumers choose their own profiles when compiling this published library.
 #
 # Cargo only reads [profile.*] from a workspace's root manifest, so this stays
 # unconditional: member crates inherit it whether or not this file also

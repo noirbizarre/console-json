@@ -39,5 +39,5 @@ pull_request:
 
 release:
   draft: true
-  # The publisher also accepts the invoking main CI run's SHA for development builds.
+  # The publisher validates and checks out the release tag supplied through ref.
   publish_input: ref

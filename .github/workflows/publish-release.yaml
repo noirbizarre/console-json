@@ -35,7 +35,7 @@ jobs:
   publish:
     name: 🚀 Publish
     runs-on: ubuntu-latest
-    # Only uploads serialize; builds remain parallel and no partial upload is cancelled.
+    # Serialize crate publication without cancelling an in-flight release.
     concurrency:
       group: publish-release
       cancel-in-progress: false
@@ -83,7 +83,7 @@ jobs:
         with:
           version: 1.28.0
           backend: local
-      # Last: an irreversible crates.io publication must follow successful binary uploads.
+      # Reruns must not attempt to publish an immutable crate version twice.
       - name: Check whether this version is already published
         id: existing
         env:
