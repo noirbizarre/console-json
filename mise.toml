@@ -1,9 +1,10 @@
 # Toolchain and task definitions.
 #
 # Tool versions are resolved to exact builds in `mise.lock`, which is
-# committed. CI installs from these two files, so local runs and CI runs
-# use identical tool versions — CI drives the tools directly rather than
-# through the tasks defined below.
+# committed. Local and CI installations use those locked builds; mise itself
+# is not pinned, and Rust runtime selection below preserves independent
+# overrides and CI toolchains, including MSRV. CI drives tools directly rather
+# than through the tasks defined below.
 #
 # Tools no CI job needs are declared on their own task rather than in `[tools]`,
 # because `mise install` — what CI runs — installs `[tools]` only. It matters:

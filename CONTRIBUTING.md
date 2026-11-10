@@ -2,9 +2,12 @@
 
 ## Setup
 
-The toolchain is managed by [mise](https://mise.jdx.dev/); every tool is pinned
-to an exact build in `mise.lock`, so a local run and a CI run use the same
-versions.
+Tools installed by [mise](https://mise.jdx.dev/) use the exact builds recorded
+in the committed configuration and `mise.lock`. The mise executable itself is
+not pinned. Rust runtime selection is separate: development follows stable,
+explicit overrides take precedence, and CI selects its own toolchains,
+including the MSRV. Local validation therefore need not use the same Rust
+version as every CI job.
 
 ```bash
 mise install          # the tools and Git hooks
