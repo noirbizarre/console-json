@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Run tag or commit SHA; leave blank for a manual main rebuild
+        description: Release ref (refs/tags/<version>); leave blank to use the workflow's tag
         required: false
         type: string
   workflow_call:
@@ -29,8 +29,6 @@ env:
   CARGO_NET_RETRY: "10"
   RUSTUP_MAX_RETRIES: "10"
   RUSTFLAGS: -D warnings
-  # gh-ship runs on the version tag; main CI publishes to the rolling channel.
-  TAG: ${{ startsWith(inputs.ref || github.ref, 'refs/tags/') && github.ref_name || vars.PRERELEASE_NAME || 'development' }}
 
 jobs:
 
@@ -43,29 +41,56 @@ jobs:
       cancel-in-progress: false
     environment:
       name: release
-      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.TAG }}
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.release.outputs.tag }}
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Resolve the release ref
+        id: release
+        env:
+          RELEASE_REF: ${{ inputs.ref || github.ref }}
+        run: |
+          # One validated ref must select both the source and the release identity.
+          if [[ "$RELEASE_REF" != refs/tags/* ]] || ! git check-ref-format "$RELEASE_REF"; then
+            echo '::error::Publication requires refs/tags/<version>; select a release tag or supply its full ref.'
+            exit 1
+          fi
+          printf 'ref=%s\ntag=%s\n' "$RELEASE_REF" "${RELEASE_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ steps.release.outputs.ref }}
           persist-credentials: false
+      - name: Validate the checked-out package version
+        id: package
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # Parse TOML rather than assuming the first version belongs to this package.
+          python3 - <<'PY'
+          import os
+          import tomllib
+
+          with open("Cargo.toml", "rb") as manifest:
+              package = tomllib.load(manifest)["package"]
+          if package["name"] != "console-json" or package["version"] != os.environ["RELEASE_TAG"]:
+              raise SystemExit("Release tag must equal the checked-out console-json package version (without a v prefix).")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={package['version']}\n")
+          PY
       - uses: dtolnay/rust-toolchain@stable
-        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
       - uses: jdx/mr-boxington-action@v1
-        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
         with:
           version: 1.28.0
           backend: local
       # Last: an irreversible crates.io publication must follow successful binary uploads.
       - name: Check whether this version is already published
         id: existing
-        if: startsWith(inputs.ref || github.ref, 'refs/tags/')
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
           status=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 \
-            -H 'User-Agent: console-json-release' "https://crates.io/api/v1/crates/console-json/${TAG}")
+            -H 'User-Agent: console-json-release' "https://crates.io/api/v1/crates/console-json/${VERSION}")
           case "$status" in
             200) echo 'published=true' >> "$GITHUB_OUTPUT" ;;
             404) echo 'published=false' >> "$GITHUB_OUTPUT" ;;
@@ -73,9 +98,9 @@ jobs:
           esac
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
-        if: startsWith(inputs.ref || github.ref, 'refs/tags/') && steps.existing.outputs.published == 'false'
+        if: steps.existing.outputs.published == 'false'
       - name: Publish to crates.io
-        if: startsWith(inputs.ref || github.ref, 'refs/tags/') && steps.existing.outputs.published == 'false'
+        if: steps.existing.outputs.published == 'false'
         run: mbx publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
