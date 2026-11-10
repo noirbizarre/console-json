@@ -118,6 +118,10 @@ is added and the writer is not flushed; the caller controls both. Existing
 `serde_json::Value` instances use the same generic functions as other
 `serde::Serialize` values.
 
+Map entries are emitted in the order supplied by `Serialize`. This crate uses
+`serde_json`'s default features, so `serde_json::Value` objects have sorted keys
+unless the consuming application enables `serde_json/preserve_order` itself.
+
 Serialization and write failures return `Error::Render`, preserving the original
 `serde_json::Error` (including I/O error kinds) through `thiserror` source
 chaining. Inspect the source to correct an unsupported value or retry with a
