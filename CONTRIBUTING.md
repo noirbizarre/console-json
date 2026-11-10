@@ -236,13 +236,14 @@ The toolchain, hooks, CI and release workflows come from
 
 ```bash
 git tpl status         # is there a template update pending?
-mise tpl:update    # advance refs/tpl/<id> — HEAD, index and worktree untouched
+mise tpl:update        # advance refs/tpl/<id>; may save migrated template answers
 mise tpl:diff      # read what merging it would change
 git tpl merge          # take it
 ```
 
-`tpl:update` is safe to run at any time: it only advances the rendered ref.
-Nothing reaches your branch until the merge.
+`tpl:update` advances the rendered ref without changing HEAD or the index, but
+may save migrated answers in `.config/git.tpl.toml` as an unstaged edit.
+Rendered project files reach your worktree only when you merge.
 
 `mise install` provides git-tpl through the declared `cargo:` tool. With
 cargo-binstall available, mise downloads its release archive rather than
