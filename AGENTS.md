@@ -4,24 +4,33 @@ Notes for anyone — human or otherwise — changing this repository.
 
 ## What this project is
 
-A lightweight, terminal-aware JSON pretty printer for Rust, built on console-rs and Serde.
-
-<!-- Replace this with the one paragraph that, if someone read only it, would -->
-<!-- stop them proposing the wrong thing. Then list the invariants below.     -->
+A lightweight, terminal-aware JSON pretty printer for Rust, built on console-rs
+and Serde. Serialize directly to the caller's writer; keep JSON encoding in
+`serde_json` and presentation in `console`. This crate is JSON-only and has no CLI.
 
 ## Non-negotiable invariants
 
 Each of these should be enforced by a hook or a test. An invariant nothing
 checks is a comment, and it will be violated.
 
-<!-- 1. **...** — enforced by `tests/....rs`. -->
+1. **Styling preserves JSON text** — enforced by
+   `nested_json_preserves_escaping_unicode_structure_and_values` in
+   `tests/rendering.rs`.
+2. **Pipes default to plain JSON** — enforced by
+   `redirected_stdout_stays_plain_unless_colors_are_explicitly_requested` in
+   `tests/rendering.rs`.
+3. **Write errors retain their I/O kind** — enforced by
+   `writer_errors_are_preserved_even_inside_colored_tokens` in
+   `tests/rendering.rs`.
 
 ## Layout
 
 ```text
 src/
-├── lib.rs      the library surface
-└── error.rs    the crate's error type
+├── lib.rs        the library surface and writer entry points
+├── error.rs      the crate's error type
+├── formatter.rs  private streaming Serde JSON formatter
+└── options.rs    color policy, options, and theme
 ```
 
 There is no binary. Anything `pub` in `lib.rs` is public API, so keep the
@@ -33,11 +42,10 @@ surface small and deliberate.
 says what. Ideally naming the failure it prevents. A comment that restates the
 code is worse than none.
 
-**Errors are typed and actionable.** `thiserror` for the error type, `miette`'s `Diagnostic` so a caller can
-render it as it likes. A diagnostic must carry the two things the user does not
-already know: what specifically failed, and what to do about it. Diagnostic
-codes are `console_json::<module>::<kind>`, and a code is a public identifier
-users grep for — renaming one is a breaking change.
+**Errors are typed and actionable.** Use `thiserror` for the error type and
+preserve underlying serialization and I/O errors through source chaining.
+Explain what specifically failed and document how callers can recover. Leave
+diagnostic rendering to the caller; do not depend on `miette`.
 
 **Test names are sentences.** `an_unchanged_input_produces_no_output`, not
 `test_run_2`. The name should say what would be broken if it failed.

@@ -52,18 +52,18 @@ strip = true
 # favour of the project if `git tpl update` ever touches it.
 
 [dependencies]
-# Errors & diagnostics. `thiserror` for typed errors inside the library,
-# `miette` to render them at the binary edge.
+# Rendering needs terminal detection and styles, not display-width calculations.
+console = { version = "0.16", default-features = false, features = ["std"] }
+# Typed errors retain their sources without imposing a diagnostic renderer.
 thiserror = "2"
-# No `fancy` feature: that is the binary's terminal rendering, and a library
-# should leave it to whoever links it.
-miette = "7"
 
 # Configuration & serialisation
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 
 [dev-dependencies]
+# ANSI parsing is only needed to verify the colored output contract.
+console = { version = "0.16", default-features = false, features = ["std", "ansi-parsing"] }
 tempfile = "3"
 insta = { version = "1", features = ["filters"] }
 rstest = "0.28"

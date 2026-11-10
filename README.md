@@ -18,8 +18,10 @@
 
 ---
 
-<!-- One paragraph: what this does and why it exists. Lead with the problem, -->
-<!-- not the implementation. -->
+Readable JSON for humans, plain JSON for scripts. `console-json` streams any
+Serde-serializable value to a writer, using `serde_json` for serialization and
+`console` for configurable terminal styles. It preserves JSON data and escaping
+without buffering or reparsing the document.
 
 ## Installation
 
@@ -30,8 +32,96 @@ cargo add console-json
 ## Usage
 
 ```rust
-console_json::run()?;
+let value = serde_json::json!({"ready": true, "items": [1, 2]});
+console_json::write_json_stdout(&value)?;
+# Ok::<(), console_json::Error>(())
 ```
+
+The stdout helper locks stdout and automatically enables colors on supported
+terminals. Redirected and piped stdout stays plain JSON.
+
+### Arbitrary writers and explicit colors
+
+```rust
+use console_json::{ColorMode, JsonOptions, write_json, write_json_with_options};
+
+let value = serde_json::json!({"ready": true});
+let mut plain = Vec::new();
+write_json(&mut plain, &value)?;
+assert_eq!(plain, serde_json::to_vec_pretty(&value)?);
+
+let mut colored = Vec::new();
+write_json_with_options(
+    &mut colored,
+    &value,
+    JsonOptions::default().color(ColorMode::Always),
+)?;
+# Ok::<(), console_json::Error>(())
+```
+
+| Mode | Stdout helpers | Generic writers |
+| --- | --- | --- |
+| `Auto` (default) | Color-capable terminal only | Plain JSON |
+| `Always` | Force styles | Force styles |
+| `Never` | Plain JSON | Plain JSON |
+
+A generic `Write` cannot reliably identify its destination, including when a
+stdout handle is passed directly. Use `write_json_stdout` or
+`write_json_stdout_with_options` for automatic stdout detection.
+
+Automatic stdout colors respect `console`'s capability/settings detection
+(including `CLICOLOR`) and the presence of `NO_COLOR` (even empty), matching
+console's behavior. Even `CLICOLOR_FORCE` cannot
+color a pipe or override `NO_COLOR` in `Auto`. `Always` overrides detection and
+`NO_COLOR`; `Never` suppresses every style. The library does not change global
+console settings. Console may cache capability/environment detection, so set
+environment variables before the first use.
+
+### Themes
+
+| Token | Default style |
+| --- | --- |
+| Object keys (including quotes) | Cyan |
+| String values (including quotes and escapes) | Green |
+| Numbers | Yellow |
+| Booleans | Magenta |
+| `null` | Dim |
+| Punctuation, separators, and indentation | Unstyled |
+
+Customize the public `Theme` fields using `console::Style`:
+
+```rust
+use console_json::{ColorMode, JsonOptions, Theme, write_json_with_options};
+
+let theme = Theme {
+    keys: console::Style::new().blue().bold(),
+    ..Theme::default()
+};
+write_json_with_options(
+    &mut Vec::new(),
+    &serde_json::json!({"ready": true}),
+    JsonOptions::default().color(ColorMode::Always).theme(theme),
+)?;
+# Ok::<(), console_json::Error>(())
+```
+
+The selected color mode overrides individual styles' `force_styling` settings.
+Removing ANSI sequences yields exactly the same text as plain output. Raw JSON
+fragments supplied through Serde JSON's optional `raw_value` feature are passed
+through unchanged rather than parsed or highlighted.
+
+### Output and errors
+
+Output follows `serde_json`'s two-space pretty formatting. No trailing newline
+is added and the writer is not flushed; the caller controls both. Existing
+`serde_json::Value` instances use the same generic functions as other
+`serde::Serialize` values.
+
+Serialization and write failures return `Error::Render`, preserving the original
+`serde_json::Error` (including I/O error kinds) through `thiserror` source
+chaining. Inspect the source to correct an unsupported value or retry with a
+writable destination. As with Serde JSON, a failure can leave partial output;
+colored output may also contain an unfinished style.
 
 ## Contributing
 
