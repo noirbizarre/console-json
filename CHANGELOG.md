@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1](https://github.com/noirbizarre/console-json/compare/0.1.0..0.1.1) - 2026-11-22
+
+### 🐛 Bug Fixes
+
+- Honor FORCE_COLOR with NO_COLOR precedence ([#10](https://github.com/noirbizarre/console-json/issues/10)) - ([99b7d60](https://github.com/noirbizarre/console-json/commit/99b7d606930d5ec6cbcf7f4c1d60bde4eab1d267))
+
 ## 0.1.0 - 2026-11-11
 
 ### 💫 Features
