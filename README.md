@@ -41,8 +41,8 @@ The stdout helper locks stdout and selects presentation for its destination:
 
 | Destination | Layout | Colors (default) |
 | --- | --- | --- |
-| Terminal | Pretty, two-space indentation | When supported |
-| Terminal with nonempty `NO_COLOR` | Pretty, two-space indentation | Disabled |
+| Terminal | Pretty, two-space indentation | When supported or forced by `FORCE_COLOR` |
+| Terminal with `NO_COLOR` present | Pretty, two-space indentation | Disabled |
 | Pipe or redirected stdout | Compact | Always disabled |
 
 ### Arbitrary writers and explicit colors
@@ -66,7 +66,7 @@ write_json_with_options(
 
 | Mode | Stdout helpers | Generic writers |
 | --- | --- | --- |
-| `Auto` (default) | Color-capable terminal only | Plain JSON |
+| `Auto` (default) | Terminal only, following environment policy | Plain JSON |
 | `Always` | Force styles on terminals only | Force styles |
 | `Never` | Plain JSON | Plain JSON |
 
@@ -75,13 +75,19 @@ A generic `Write` cannot reliably identify its destination, including when a
 stdout handle is passed directly. Use `write_json_stdout` or
 `write_json_stdout_with_options` for automatic stdout detection.
 
-Automatic stdout colors use `console`'s detection and respect `CLICOLOR` and
-nonempty `NO_COLOR`. An unset or empty `NO_COLOR` does not disable colors on an
-otherwise supported terminal. For an empty value, terminal and `CLICOLOR` checks
-compensate for console's presence-based detection. Even `CLICOLOR_FORCE` cannot
-color a pipe or override `NO_COLOR` in `Auto`. On terminals, `Always` overrides
-capability detection and `NO_COLOR`; `Never` suppresses every style. Stdout helpers
-keep pipes and redirected output compact and uncolored even in `Always` mode.
+Automatic stdout colors follow this precedence on terminals:
+
+1. Any `NO_COLOR` presence, including an empty value, disables colors.
+2. Otherwise, `FORCE_COLOR=0` disables colors.
+3. Otherwise, nonempty `FORCE_COLOR` enables colors, even with `TERM=dumb` or
+   unsupported capabilities.
+4. Absent or empty `FORCE_COLOR` falls back to `console`'s detection, including
+   `CLICOLOR` and `CLICOLOR_FORCE`. `TERM=dumb` disables this fallback even with
+   `CLICOLOR_FORCE` set.
+
+On terminals, `Always` overrides capability detection, `NO_COLOR`, and `FORCE_COLOR`;
+`Never` suppresses every style. Stdout helpers keep pipes and redirected output
+compact and uncolored regardless of environment variables, even in `Always` mode.
 Color settings never change the selected layout. The library does not change global
 console settings. Console may cache capability/environment detection, so set
 environment variables before the first use.

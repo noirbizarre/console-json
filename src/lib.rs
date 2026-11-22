@@ -73,7 +73,9 @@ pub fn write_json_with_options<W: Write + ?Sized, T: Serialize + ?Sized>(
 
 /// Write JSON to locked stdout with automatic terminal detection.
 ///
-/// Colors require a supported terminal and no nonempty `NO_COLOR` variable.
+/// Any `NO_COLOR` disables automatic colors. Otherwise, nonempty `FORCE_COLOR`
+/// overrides capability detection (`0` disables colors, other values enable them).
+/// Without an override, colors require a supported terminal that is not dumb.
 /// Terminals receive pretty JSON, even when colors are disabled. Redirected or
 /// piped stdout receives compact, uncolored JSON.
 ///
@@ -88,8 +90,11 @@ pub fn write_json_stdout<T: Serialize + ?Sized>(value: &T) -> Result<()> {
 ///
 /// Terminals receive pretty JSON; pipes and redirected stdout always receive
 /// compact, uncolored JSON, regardless of the selected color mode.
-/// On terminals, automatic colors respect capabilities, `CLICOLOR`, and nonempty
-/// `NO_COLOR`. [`ColorMode::Always`] overrides capability detection and `NO_COLOR`;
+/// On terminals, any `NO_COLOR` disables automatic colors, including an empty value.
+/// Otherwise, `FORCE_COLOR=0` disables colors and other nonempty `FORCE_COLOR`
+/// values enable them, even with `TERM=dumb`. Absent or empty `FORCE_COLOR` falls
+/// back to console's detection (including `CLICOLOR`), with dumb terminals disabled.
+/// [`ColorMode::Always`] overrides capability detection, `NO_COLOR`, and `FORCE_COLOR`;
 /// [`ColorMode::Never`] suppresses all styles without changing the layout.
 /// Console may cache capability and environment detection for the process.
 ///
@@ -149,6 +154,8 @@ mod tests {
     #[test]
     fn stdout_layout_and_colors_follow_destination_and_environment() {
         if let Ok(expected) = std::env::var("CONSOLE_JSON_TEST_STDOUT_COLORS") {
+            assert_eq!(options::stdout_auto_colors(true), expected == "true");
+            assert!(!options::stdout_auto_colors(false));
             let value = json!({"escaped\"key": ["café\n🦀", true, 42, null, {}, []]});
             for terminal in [false, true] {
                 for mode in [ColorMode::Auto, ColorMode::Always, ColorMode::Never] {
@@ -185,45 +192,50 @@ mod tests {
             return;
         }
 
-        // Fresh children isolate NO_COLOR and console's process-wide capability cache.
-        for (no_color, supported) in [
-            (None, true),
-            (Some(""), true),
-            (Some("0"), true),
-            (Some("1"), true),
-            (None, false),
-            (Some(""), false),
-        ] {
-            let mut command = Command::new(std::env::current_exe().unwrap());
-            command
-                .args([
-                    "--exact",
-                    "tests::stdout_layout_and_colors_follow_destination_and_environment",
-                    "--nocapture",
-                ])
-                .env(
-                    "CONSOLE_JSON_TEST_STDOUT_COLORS",
-                    (supported && no_color.is_none_or(str::is_empty)).to_string(),
-                )
-                .env("TERM", if supported { "xterm-256color" } else { "dumb" })
-                .env("CLICOLOR", if supported { "1" } else { "0" })
-                .env_remove("CLICOLOR_FORCE")
-                .env_remove("NO_COLOR");
-            if supported {
-                // The test child's actual stdout is captured, so force console's
-                // capability result while independently injecting terminal status.
-                command.env("CLICOLOR_FORCE", "1");
+        // Fresh children isolate environment policy and console's capability cache.
+        for no_color in [None, Some(""), Some("0"), Some("1")] {
+            for force_color in [None, Some(""), Some("0"), Some("1"), Some("3")] {
+                for (term, clicolor, clicolor_force, supported) in [
+                    // Force console's fallback result because the child's actual stdout is a pipe.
+                    ("xterm-256color", "1", "1", true),
+                    ("xterm-256color", "0", "0", false),
+                    // Our dumb-terminal gate must win over console's legacy force override.
+                    ("dumb", "0", "1", false),
+                ] {
+                    let expected = no_color.is_none()
+                        && match force_color {
+                            Some("0") => false,
+                            Some(value) if !value.is_empty() => true,
+                            _ => supported,
+                        };
+                    let mut command = Command::new(std::env::current_exe().unwrap());
+                    command
+                        .args([
+                            "--exact",
+                            "tests::stdout_layout_and_colors_follow_destination_and_environment",
+                            "--nocapture",
+                        ])
+                        .env("CONSOLE_JSON_TEST_STDOUT_COLORS", expected.to_string())
+                        .env("TERM", term)
+                        .env("CLICOLOR", clicolor)
+                        .env("CLICOLOR_FORCE", clicolor_force)
+                        .env_remove("FORCE_COLOR")
+                        .env_remove("NO_COLOR");
+                    if let Some(force_color) = force_color {
+                        command.env("FORCE_COLOR", force_color);
+                    }
+                    if let Some(no_color) = no_color {
+                        command.env("NO_COLOR", no_color);
+                    }
+                    let child = command.output().unwrap();
+                    assert!(
+                        child.status.success(),
+                        "NO_COLOR={no_color:?}, FORCE_COLOR={force_color:?}, TERM={term}, CLICOLOR={clicolor}, CLICOLOR_FORCE={clicolor_force}: {}{}",
+                        String::from_utf8_lossy(&child.stdout),
+                        String::from_utf8_lossy(&child.stderr)
+                    );
+                }
             }
-            if let Some(no_color) = no_color {
-                command.env("NO_COLOR", no_color);
-            }
-            let child = command.output().unwrap();
-            assert!(
-                child.status.success(),
-                "NO_COLOR={no_color:?}, supported={supported}: {}{}",
-                String::from_utf8_lossy(&child.stdout),
-                String::from_utf8_lossy(&child.stderr)
-            );
         }
     }
 
