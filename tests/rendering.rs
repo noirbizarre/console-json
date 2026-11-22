@@ -325,35 +325,42 @@ fn stdout_can_be_rendered_in_an_isolated_process() {
 fn redirected_stdout_is_always_compact_and_uncolored() {
     for mode in ["default", "auto", "always", "never"] {
         for no_color in [None, Some(""), Some("1")] {
-            let mut command = Command::new(std::env::current_exe().unwrap());
-            command
-                .args([
-                    "--exact",
-                    "stdout_can_be_rendered_in_an_isolated_process",
-                    "--nocapture",
-                ])
-                .env("CONSOLE_JSON_TEST_PROBE", mode)
-                .env("TERM", "xterm-256color")
-                .env("CLICOLOR_FORCE", "1")
-                .env_remove("NO_COLOR");
-            if let Some(value) = no_color {
-                command.env("NO_COLOR", value);
+            for force_color in [None, Some(""), Some("0"), Some("1")] {
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([
+                        "--exact",
+                        "stdout_can_be_rendered_in_an_isolated_process",
+                        "--nocapture",
+                    ])
+                    .env("CONSOLE_JSON_TEST_PROBE", mode)
+                    .env("TERM", "xterm-256color")
+                    .env("CLICOLOR", "1")
+                    .env("CLICOLOR_FORCE", "1")
+                    .env_remove("FORCE_COLOR")
+                    .env_remove("NO_COLOR");
+                if let Some(value) = force_color {
+                    command.env("FORCE_COLOR", value);
+                }
+                if let Some(value) = no_color {
+                    command.env("NO_COLOR", value);
+                }
+                let child = command.output().unwrap();
+                assert!(
+                    child.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&child.stderr)
+                );
+                let stdout = String::from_utf8(child.stdout).unwrap();
+                let rendered = stdout
+                    .split_once("BEGIN_JSON\n")
+                    .unwrap()
+                    .1
+                    .split_once("\nEND_JSON")
+                    .unwrap()
+                    .0;
+                assert_eq!(rendered, "{\"ready\":true}");
             }
-            let child = command.output().unwrap();
-            assert!(
-                child.status.success(),
-                "{}",
-                String::from_utf8_lossy(&child.stderr)
-            );
-            let stdout = String::from_utf8(child.stdout).unwrap();
-            let rendered = stdout
-                .split_once("BEGIN_JSON\n")
-                .unwrap()
-                .1
-                .split_once("\nEND_JSON")
-                .unwrap()
-                .0;
-            assert_eq!(rendered, "{\"ready\":true}");
         }
     }
 }
